@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HRT Testosterone Level Calculator</title>
+    <script src="https://cdn.jsdelivr.net/npm/@radix-ui/themes@2.0.0/dist/index.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@radix-ui/themes@2.0.0/styles.css">
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    
+    <style>
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 0.5rem;
+        }
+        
+        .table-container {
+            overflow-x: auto;
+            margin-top: 0.5rem;
+        }
+        
+        .future-row {
+            background-color: var(--yellow-2);
+        }
+        
+        .auto-filled-row {
+            background-color: var(--gray-2);
+        }
+        
+        .amount-cell {
+            background-color: var(--red-2);
+        }
+
+        /* More compact table styles */
+        table {
+            font-size: 0.9rem;
+        }
+
+        td, th {
+            padding: 0.4rem !important;
+        }
+
+        .action-button {
+            padding: 0.2rem 0.4rem;
+            margin: 0 0.2rem;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+
+        .edit-button {
+            background: var(--blue-9);
+            color: white;
+        }
+
+        .delete-button {
+            background: var(--red-9);
+            color: white;
+        }
+
+        .settings-panel {
+            background: var(--gray-1);
+            border: 1px solid var(--gray-4);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="radix-themes" style="min-height: 100vh; background: var(--gray-2);">
+        <main style="max-width: 1000px; margin: 0 auto; padding: 1rem;">
+            <section>
+                <div style="background: white; border-radius: 8px; padding: 1.5rem; box-shadow: var(--shadow-2);">
+                    <h1 style="margin-bottom: 1.5rem;">HRT Testosterone Level Calculator</h1>
+
+                    <!-- Settings Panel -->
+                    <div class="settings-panel">
+                        <label for="dropConstant">Test Drop Constant:</label>
+                        <input type="number" id="dropConstant" value="0.15" step="0.01" min="0" max="1" 
+                            style="width: 100px; padding: 0.3rem; border: 1px solid var(--gray-6); border-radius: 4px;">
+                        <button onclick="updateDropConstant()" 
+                            style="background: var(--blue-9); color: white; padding: 0.3rem 0.8rem; border-radius: 4px; border: none; cursor: pointer;">
+                            Update
+                        </button>
+                    </div>
+
+                    <!-- Input Form -->
+                    <div class="grid-container" style="margin-bottom: 1rem;">
+                        <div>
+                            <label for="date" style="display: block; margin-bottom: 0.3rem;">
+                                Injection Date
+                            </label>
+                            <input type="date" id="date" required 
+                                style="width: 100%; padding: 0.3rem; border: 1px solid var(--gray-6); border-radius: 4px;">
+                        </div>
+
+                        <div>
+                            <label for="time" style="display: block; margin-bottom: 0.3rem;">
+                                Time
+                            </label>
+                            <select id="time" required 
+                                style="width: 100%; padding: 0.3rem; border: 1px solid var(--gray-6); border-radius: 4px;">
+                                <option value="morning">Morning</option>
+                                <option value="night">Night</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label for="location" style="display: block; margin-bottom: 0.3rem;">
+                                Location
+                            </label>
+                            <select id="location" required 
+                                style="width: 100%; padding: 0.3rem; border: 1px solid var(--gray-6); border-radius: 4px;">
+                                <option value="VG-D">VG-D</option>
+                                <option value="VG-S">VG-S</option>
+                                <option value="DT-S">DT-S</option>
+                                <option value="DT-D">DT-D</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label for="amount" style="display: block; margin-bottom: 0.3rem;">
+                                Amount (mg)
+                            </label>
+                            <input type="number" id="amount" required step="0.1" 
+                                style="width: 100%; padding: 0.3rem; border: 1px solid var(--gray-6); border-radius: 4px;">
+                        </div>
+                    </div>
+
+                    <button onclick="addInjection()" 
+                        style="background: var(--blue-9); color: white; padding: 0.5rem 1rem; border-radius: 4px; border: none; cursor: pointer; margin-bottom: 1rem;">
+                        Add Injection
+                    </button>
+
+                    <!-- Results Card -->
+                    <div style="background: var(--gray-1); border: 1px solid var(--gray-4); border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
+                        <h3 style="margin-bottom: 0.5rem;">Current Estimates</h3>
+                        <div style="display: flex; gap: 1rem;">
+                            <div>
+                                <p style="color: var(--gray-11); font-size: 0.875rem;">Estimated Serum T Level</p>
+                                <p style="font-size: 1.25rem; font-weight: 500;"><span id="serumTLevel">600</span> ng/dL</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Table -->
+                    <div class="table-container">
+                        <h3 style="margin-bottom: 0.5rem;">Injection History and Predictions</h3>
+                        <table id="injectionTable" style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="border-bottom: 2px solid var(--gray-4);">
+                                    <th style="text-align: left;">Date</th>
+                                    <th style="text-align: left;">Loc</th>
+                                    <th class="hidden">Day</th>
+                                    <th class="hidden">Week</th>
+                                    <th style="text-align: left;">Dose (mL)</th>
+                                    <th style="text-align: left;">Dose (mg)</th>
+                                    <th style="text-align: left;">Estimate</th>
+                                    <th style="text-align: center;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        // Firebase configuration
+const firebaseConfig = {
+    apiKey: "AIzaSyC6G-gO1G60_1UkTiGkHWVeAkrLqbdaMWA",
+    authDomain: "finaltracker-8bb3a.firebaseapp.com",
+    projectId: "finaltracker-8bb3a",
+    storageBucket: "finaltracker-8bb3a.firebasestorage.app",
+    messagingSenderId: "171716971310",
+    appId: "1:171716971310:web:10552c51258010eef288bf"
+};
+
+// Initialize Firebase
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const injectionsRef = db.collection('injections');
+
+// Constants
+const HALF_LIFE = 4.5;
+const ESTER_FREE_WEIGHT = 0.7;
+const MG_DILUTES_TO = 18.2;
+let TEST_DROP_CONSTANT = 0.15;
+const CONCENTRATION = 250;
+const DAYS_TO_PREDICT = 5;
+
+let injections = [];
+let currentSerumTLevel = 600;
+
+function updateDropConstant() {
+    const newValue = parseFloat(document.getElementById('dropConstant').value);
+    if (newValue >= 0 && newValue <= 1) {
+        TEST_DROP_CONSTANT = newValue;
+        recalculateAll();
+        updateTable();
+        updateDisplays();
+    } else {
+        alert('Please enter a value between 0 and 1');
+    }
+}
+
+async function deleteInjection(id) {
+    try {
+        await injectionsRef.doc(id).delete();
+        await loadInjections();
+    } catch (error) {
+        console.error("Error deleting injection:", error);
+        alert('Error deleting injection. Please try again.');
+    }
+}
+
+async function editInjection(id) {
+    const injection = injections.find(inj => inj.id === id);
+    if (!injection) return;
+
+    const newAmount = prompt('Enter new amount (mg):', injection.amount);
+    if (newAmount === null) return;
+
+    const amount = parseFloat(newAmount);
+    if (isNaN(amount)) {
+        alert('Please enter a valid number');
+        return;
+    }
+
+    try {
+        await injectionsRef.doc(id).update({ amount });
+        await loadInjections();
+    } catch (error) {
+        console.error("Error updating injection:", error);
+        alert('Error updating injection. Please try again.');
+    }
+}
+
+// Load initial data
+async function loadInjections() {
+    try {
+        const snapshot = await injectionsRef.orderBy('dayNumber').get();
+        injections = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            date: new Date(doc.data().date)
+        }));
+        recalculateAll();
+        updateTable();
+        updateDisplays();
+    } catch (error) {
+        console.error("Error loading injections:", error);
+    }
+}
+
+function formatDate(date) {
+    const d = new Date(date);
+    return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear().toString().slice(-2)}`;
+}
+
+function getDayNumber(date, timeOfDay) {
+    const startDate = new Date(injections.length > 0 ? injections[0].date : date);
+    startDate.setHours(0, 0, 0, 0);
+    const targetDate = new Date(date);
+    targetDate.setHours(0, 0, 0, 0);
+    const diffTime = targetDate - startDate;
+    const diffDays = diffTime / (1000 * 60 * 60 * 24);
+    return diffDays + (timeOfDay === 'night' ? 0.5 : 0);
+}
+
+function getWeekNumber(dayNumber) {
+    return Math.floor(dayNumber / 7);
+}
+
+function calculateTestEInOil(index) {
+    if (index === 0) {
+        return injections[0].amount;
+    }
+    
+    const previousTestEInOil = injections[index - 1].testEInOil;
+    const daysDiff = injections[index].dayNumber - injections[index - 1].dayNumber;
+    return previousTestEInOil * Math.pow(0.5, daysDiff / HALF_LIFE) + injections[index].amount;
+}
+
+function calculateTestEReleased(testEInOil) {
+    return testEInOil * Math.log(2) / HALF_LIFE * ESTER_FREE_WEIGHT;
+}
+
+function calculateSerumTLevel(index) {
+    if (index === 0) {
+        return currentSerumTLevel + (calculateTestEReleased(injections[0].testEInOil) / 2 * MG_DILUTES_TO) - (currentSerumTLevel * TEST_DROP_CONSTANT);
+    }
+
+    const previousLevel = injections[index - 1].serumTLevel;
+    const netTRelease = calculateTestEReleased(injections[index].testEInOil);
+    const serumTDrop = previousLevel * TEST_DROP_CONSTANT;
+    
+    return previousLevel + (netTRelease / 2 * MG_DILUTES_TO) - serumTDrop;
+}
+
+function createPairedInjection(originalInjection) {
+    return {
+        date: originalInjection.date,
+        timeOfDay: originalInjection.timeOfDay === 'morning' ? 'night' : 'morning',
+        location: originalInjection.location,
+        amount: 0,
+        dayNumber: originalInjection.timeOfDay === 'morning' ? 
+            originalInjection.dayNumber + 0.5 : 
+            originalInjection.dayNumber - 0.5,
+        weekNumber: getWeekNumber(originalInjection.dayNumber),
+        isAutoFilled: true
+    };
+}
+
+function recalculateAll() {
+    for (let i = 0; i < injections.length; i++) {
+        injections[i].testEInOil = calculateTestEInOil(i);
+        injections[i].testEReleased = calculateTestEReleased(injections[i].testEInOil);
+        injections[i].serumTLevel = calculateSerumTLevel(i);
+    }
+}
+
+async function addInjection() {
+    const dateInput = document.getElementById('date');
+    const timeInput = document.getElementById('time');
+    const locationInput = document.getElementById('location');
+    const amountInput = document.getElementById('amount');
+
+    if (!dateInput.value || !amountInput.value) {
+        alert('Please fill in all fields');
+        return;
+    }
+
+    const injection = {
+        date: dateInput.value,
+        timeOfDay: timeInput.value,
+        location: locationInput.value,
+        amount: parseFloat(amountInput.value),
+        dayNumber: getDayNumber(dateInput.value, timeInput.value)
+    };
+
+    const pairedInjection = createPairedInjection(injection);
+
+    try {
+        const batch = db.batch();
+        const injectionDoc = injectionsRef.doc();
+        const pairedDoc = injectionsRef.doc();
+
+        batch.set(injectionDoc, injection);
+        batch.set(pairedDoc, pairedInjection);
+        await batch.commit();
+
+        await loadInjections();
+
+        dateInput.value = '';
+        amountInput.value = '';
+    } catch (error) {
+        console.error("Error adding injection:", error);
+        alert('Error saving injection. Please try again.');
+    }
+}
+
+function generateFuturePredictions() {
+    if (injections.length === 0) return [];
+    
+    const predictions = [];
+    const lastInjection = injections[injections.length - 1];
+    const lastDay = lastInjection.dayNumber;
+    
+    for (let i = 1; i <= DAYS_TO_PREDICT * 2; i++) {
+        const dayOffset = i * 0.5;
+        const prediction = {
+            date: new Date(lastInjection.date),
+            timeOfDay: i % 2 === 1 ? 'night' : 'morning',
+            dayNumber: lastDay + dayOffset,
+            amount: 0,
+            isFuture: true
+        };
+        
+        prediction.date.setDate(prediction.date.getDate() + Math.floor(dayOffset));
+        prediction.weekNumber = getWeekNumber(prediction.dayNumber);
+        
+        const daysSinceLastReal = prediction.dayNumber - lastInjection.dayNumber;
+        prediction.testEInOil = lastInjection.testEInOil * Math.pow(0.5, daysSinceLastReal / HALF_LIFE);
+        prediction.testEReleased = calculateTestEReleased(prediction.testEInOil);
+        
+        if (predictions.length === 0) {
+            prediction.serumTLevel = lastInjection.serumTLevel + (prediction.testEReleased / 2 * MG_DILUTES_TO) - (lastInjection.serumTLevel * TEST_DROP_CONSTANT);
+        } else {
+            prediction.serumTLevel = predictions[predictions.length - 1].serumTLevel + (prediction.testEReleased / 2 * MG_DILUTES_TO) - (predictions[predictions.length - 1].serumTLevel * TEST_DROP_CONSTANT);
+        }
+        
+        predictions.push(prediction);
+    }
+    
+    return predictions;
+}
+
+function updateDisplays() {
+    if (injections.length === 0) {
+        document.getElementById('serumTLevel').textContent = '600';
+        return;
+    }
+
+    const lastInjection = injections[injections.length - 1];
+    document.getElementById('serumTLevel').textContent = lastInjection.serumTLevel.toFixed(2);
+}
+
+function updateTable() {
+    const tbody = document.querySelector('#injectionTable tbody');
+    tbody.innerHTML = '';
+
+    const predictions = generateFuturePredictions();
+    const allEntries = [...injections, ...predictions];
+    
+    // Filter to show only morning entries
+    const morningEntries = allEntries.filter(entry => entry.timeOfDay === 'morning');
+
+    morningEntries.forEach(entry => {
+        const row = document.createElement('tr');
+        row.style.borderBottom = '1px solid var(--gray-4)';
+        
+        if (entry.isFuture) {
+            row.classList.add('future-row');
+        }
+        if (entry.isAutoFilled) {
+            row.classList.add('auto-filled-row');
+        }
+        
+        // Date cell
+        const dateCell = document.createElement('td');
+        dateCell.textContent = formatDate(entry.date);
+        row.appendChild(dateCell);
+        
+        // Location cell
+        const locCell = document.createElement('td');
+        locCell.textContent = entry.location || '-';
+        row.appendChild(locCell);
+        
+        // Hidden cells for Day and Week
+        const dayCell = document.createElement('td');
+        dayCell.className = 'hidden';
+        dayCell.textContent = entry.dayNumber.toFixed(1);
+        row.appendChild(dayCell);
+        
+        const weekCell = document.createElement('td');
+        weekCell.className = 'hidden';
+        weekCell.textContent = entry.weekNumber;
+        row.appendChild(weekCell);
+        
+        // Dose (mL) cell
+        const mlCell = document.createElement('td');
+        mlCell.classList.add('amount-cell');
+        mlCell.textContent = entry.amount > 0 ? (entry.amount / CONCENTRATION).toFixed(2) : '0.00';
+        row.appendChild(mlCell);
+        
+        // Dose (mg) cell
+        const mgCell = document.createElement('td');
+        mgCell.style.color = entry.amount === 0 ? 'var(--gray-8)' : 'var(--gray-12)';
+        mgCell.textContent = entry.amount.toFixed(1);
+        row.appendChild(mgCell);
+        
+        // Estimate cell
+        const serumCell = document.createElement('td');
+        serumCell.textContent = Math.round(entry.serumTLevel);
+        row.appendChild(serumCell);
+
+        // Actions cell
+        const actionsCell = document.createElement('td');
+        actionsCell.style.textAlign = 'center';
+        if (!entry.isFuture && !entry.isAutoFilled) {
+            const editButton = document.createElement('button');
+            editButton.textContent = 'Edit';
+            editButton.className = 'action-button edit-button';
+            editButton.onclick = () => editInjection(entry.id);
+
+            const deleteButton = document.createElement('button');
+            deleteButton.textContent = 'Delete';
+            deleteButton.className = 'action-button delete-button';
+            deleteButton.onclick = () => deleteInjection(entry.id);
+
+            actionsCell.appendChild(editButton);
+            actionsCell.appendChild(deleteButton);
+        }
+        row.appendChild(actionsCell);
+        
+        tbody.appendChild(row);
+    });
+}
+
+// Load initial data when the page loads
+document.addEventListener('DOMContentLoaded', () => {
+    loadInjections();
+});
+    </script>
+</body>
+</html>
